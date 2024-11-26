@@ -1,0 +1,153 @@
+---
+title: "EDA & PreProcessing Credit Scoring"
+author: "Carmine Santone"
+output:
+  word_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(dplyr)
+setwd("C:/Users/csant/Desktop/ProfessionAI/Modelli Machine Learning")
+df <- read.csv("credit_scoring.csv")
+```
+ 
+# Variabili del dataset
+**ID**: numero identificativo del cliente
+
+**CODE_GENDER**: sesso del cliente
+
+**FLAGOWNCAR**: indicatore del possesso di un'automobile
+
+**FLAGOWNREALTY**: indicatore del possesso di una casa
+
+**CNT_CHILDREN**: numero di figli
+
+**AMTINCOMETOTAL**: reddito annuale
+
+**NAMEINCOMETYPE**: tipo di reddito
+
+**NAMEEDUCATIONTYPE**: livello di educazione
+
+**NAMEFAMILYSTATUS**: stato civile
+
+**NAMEHOUSINGTYPE**: tipo di abitazione
+
+**DAYS_BIRTH**: numero di giorni trascorsi dalla nascita
+
+**DAYS_EMPLOYED**: numero di giorni trascorsi dalla data di assunzione (se positivo, indica il numero di giorni da quando è disoccupato)
+
+**FLAG_MOBIL**: indicatore della presenza di un numero di cellulare
+
+**FLAGWORKPHONE**: indicatore della presenza di un numero di telefono di lavoro
+
+**FLAG_PHONE**: indicatore della presenza di un numero di telefono
+
+**FLAG_EMAIL**: indicatore della presenza di un indirizzo email
+
+**OCCUPATION_TYPE**: tipo di occupazione
+
+**CNTFAMMEMBERS**: numero di familiari
+
+**TARGET**: variabile che vale 1 se il cliente ha una elevata affidabilità creditizia (pagamento costante delle rate), 0 altrimenti 
+ 
+ 
+# SUMMARY
+```{r}
+df <- df %>%
+  mutate_if(is.character, factor)
+summary(df)
+```
+Si procede all'analisi delle singole variabili che presentano valori anomali
+
+## DAYS_EMPOLYED
+Il valore massimo della variabile è:
+```{r}
+max_days_emp <- max(df$DAYS_EMPLOYED, na.rm = T)
+print(max_days_emp)
+```
+che equivale a 1.000 anni di lavoro, impossibile.
+```{r}
+table(df$DAYS_EMPLOYED == max_days_emp, df$NAME_INCOME_TYPE)
+```
+Quindi, per i pensionati, la variabile **DAYS_EMPLOYED** assume valore **365243**. 
+C'è bisogno di un encoding della variabile, si propone la creazione di una variabile che la sostituisca.
+La variabile **DAYS_EMPLOYED**, codificata in questo modo, non ha senso perchè un manager appena assunto
+avrebbe un valore minore rispetto ad un lavoratore alla prima esperienza. 
+Si propone la sostituizione con una variabile **STATUS_EMPLOYED** categoriale, con 3 modalità, per 
+occupati, disoccupati e pensionati.
+Innanzitutto controllo se ci sono disoccupati:
+```{r}
+sum(df$DAYS_EMPLOYED >= 0 & df$DAYS_EMPLOYED != max_days_emp, na.rm = T)
+```
+Non essendoci disoccupati, **STATUS_EMPLOYED** sarà una dummy, con modalità **Employed** e **Pensioner**.
+```{r}
+df$STATUS_EMPLOYED <- factor(ifelse(df$DAYS_EMPLOYED < 1, "Employed", "Pensioner"))
+df$DAYS_EMPLOYED <- NULL
+```
+
+
+## OCCUPATION_TYPE
+Stringa vuota come modalità:
+```{r}
+table(df$OCCUPATION_TYPE)
+```
+Controllo se il valore mancante sia dovuto al fatto di essere pensionato, in quanto non è presente come modalità in **OCCUPATION_TYPE**:
+```{r}
+table(df$STATUS_EMPLOYED == "Pensioner", df$OCCUPATION_TYPE)
+```
+Su **103342** valori mancanti, **57841** sono da imputare come **Pensioner** e imputo gli altri valori mancanti con una nuova modalità, **Other**:
+```{r}
+levels(df$OCCUPATION_TYPE) <- c(levels(df$OCCUPATION_TYPE), "Pensioner", "Other")
+df$OCCUPATION_TYPE[df$OCCUPATION_TYPE == "" & df$STATUS_EMPLOYED == "Pensioner"] <- "Pensioner"
+df$OCCUPATION_TYPE[df$OCCUPATION_TYPE == ""] <- "Other"
+df$OCCUPATION_TYPE <- droplevels(df$OCCUPATION_TYPE)
+table(df$OCCUPATION_TYPE)
+```
+
+
+## DAYS_BIRTH
+Trasformo la variabile **DAYS_BIRTH** in **AGE**
+```{r}
+df$AGE <- -df$DAYS_BIRTH
+df$AGE <- floor(df$AGE/365)
+
+df$DAYS_BIRTH <- NULL
+```
+
+
+## ALTRI VALORI MANCANTI
+In totale ci sono **7** valori mancanti...
+```{r}
+sum(is.na(df))
+
+```
+... che appartengono all'osservazione **338427**
+```{r}
+na_sum <- rowSums(is.na(df))
+na_obs <- which(na_sum != 0)
+print(na_obs)
+```
+Trattandosi di una sola osservazione, si procede all'eliminazione dal dataset
+```{r}
+df <- df[-na_obs,]
+```
+
+
+## DUPLICATI
+La matrice dei dati è composta da **268652** osservazioni duplicate
+```{r}
+sum(duplicated(df[,-1]))
+```
+Prendo in considerazione solo le righe uniche
+```{r}
+df <- unique(df[,-1])
+```
+
+
+# ESPORTAZIONE DEL DATASET PULITO
+Esporto il dataset pulito per utilizzarlo in ambiente Python per la parte di applicazione di modelli di Machine Learning
+```{r}
+write.csv(df, "credit_scoring_preprocessed.csv", row.names = FALSE)
+```
